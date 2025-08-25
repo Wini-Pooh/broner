@@ -219,6 +219,18 @@ class CompanyController extends Controller
         // Находим минимальную длительность услуги
         $minServiceDuration = $activeServices->min('duration_minutes') ?? 30; // по умолчанию 30 минут
         
+        // Используем настройку appointment_interval как основной интервал генерации слотов
+        // Это обеспечивает соблюдение настроек календаря компании
+        $slotGenerationInterval = $settings['appointment_interval'];
+        
+        // Логирование для понимания логики
+        Log::info('Параметры генерации слотов', [
+            'min_service_duration' => $minServiceDuration,
+            'appointment_interval' => $settings['appointment_interval'],
+            'slot_generation_interval' => $slotGenerationInterval,
+            'services' => $activeServices->pluck('duration_minutes', 'name')->toArray()
+        ]);
+        
         // Определяем время работы с учетом исключений
         $workTimeRange = null;
         if ($dateException && $dateException->isAllowException()) {
@@ -297,8 +309,8 @@ class CompanyController extends Controller
             }
             
             $appointmentTime = Carbon::parse($appointment->appointment_time);
-            // Используем реальную длительность записи или интервал по умолчанию
-            $duration = $appointment->duration_minutes ?? $slotDuration;
+            // Используем длительность из связанной услуги или минимальную длительность услуги
+            $duration = $appointment->service ? $appointment->service->duration_minutes : $minServiceDuration;
             $appointmentEnd = $appointmentTime->copy()->addMinutes($duration);
             
             // Если есть перерыв между записями, добавляем его к концу
@@ -314,6 +326,16 @@ class CompanyController extends Controller
                 'appointment' => $appointment,
                 'duration' => $duration
             ];
+            
+            // Логирование для отладки
+            Log::debug('Создан занятый интервал', [
+                'appointment_id' => $appointment->id,
+                'appointment_time' => $appointmentTime->format('H:i'),
+                'duration' => $duration,
+                'appointment_end' => $appointmentEnd->format('H:i'),
+                'interval_end' => $intervalEnd->format('H:i'),
+                'break_time' => $appointmentBreakTime
+            ]);
         }
 
         $currentTime = $startTime->copy();
@@ -323,7 +345,7 @@ class CompanyController extends Controller
             
             // Проверяем, не время ли перерыва
             if ($this->isBreakTime($timeString, $settings['break_times'])) {
-                $currentTime->addMinutes($slotDuration);
+                $currentTime->addMinutes($slotGenerationInterval);
                 continue;
             }
             
@@ -337,10 +359,20 @@ class CompanyController extends Controller
             $slotAppointments = collect();
             
             foreach ($occupiedIntervals as $interval) {
-                // Проверяем пересечение: если начало слота попадает в занятый интервал
-                if ($currentTime->between($interval['start'], $interval['end'], false)) {
+                $intervalStart = $interval['start'];
+                $intervalEnd = $interval['end'];
+                
+                // Проверяем пересечение: если начало слота попадает в занятый интервал (исключая правую границу)
+                // 11:30 должно быть заблокировано, если интервал 11:00-12:00
+                if ($currentTime->greaterThanOrEqualTo($intervalStart) && $currentTime->lessThan($intervalEnd)) {
                     $isBlocked = true;
                     $blockingAppointment = $interval['appointment'];
+                    Log::debug('Слот заблокирован занятым интервалом', [
+                        'slot_time' => $currentTime->format('H:i'),
+                        'interval_start' => $intervalStart->format('H:i'),
+                        'interval_end' => $intervalEnd->format('H:i'),
+                        'appointment_id' => $interval['appointment']->id
+                    ]);
                     break;
                 }
             }
@@ -380,12 +412,27 @@ class CompanyController extends Controller
                 // Проверяем, достаточно ли времени для самой короткой услуги + перерыв
                 $hasEnoughTime = $this->hasEnoughTimeForService($currentTime, $endTime, $minServiceDuration, $appointmentBreakTime, $occupiedIntervals);
                 
+                // Для отладки: логируем информацию о расчете доступности слота
+                Log::debug('Расчет доступности слота', [
+                    'time' => $timeString,
+                    'is_owner' => $isOwner,
+                    'is_fully_booked' => $isFullyBooked,
+                    'is_blocked' => $isBlocked,
+                    'has_enough_time' => $hasEnoughTime,
+                    'is_past' => $isPast,
+                    'final_is_work_day' => $finalIsWorkDay,
+                    'is_holiday' => $isHoliday,
+                    'min_service_duration' => $minServiceDuration,
+                    'appointment_break_time' => $appointmentBreakTime,
+                    'occupied_intervals_count' => count($occupiedIntervals)
+                ]);
+                
                 $slot = [
                     'time' => $timeString,
                     'appointments' => [],
-                    // Для владельца: доступен если не полностью занят И не заблокирован другой записью
+                    // Для владельца: доступен если не полностью занят И не заблокирован другой записью И достаточно времени
                     // Для других: применяем все ограничения
-                    'available' => $isOwner ? (!$isFullyBooked && !$isBlocked) : (!$isFullyBooked && !$isPast && $finalIsWorkDay && !$isHoliday && $hasEnoughTime && !$isBlocked),
+                    'available' => $isOwner ? (!$isFullyBooked && !$isBlocked && $hasEnoughTime) : (!$isFullyBooked && !$isPast && $finalIsWorkDay && !$isHoliday && $hasEnoughTime && !$isBlocked),
                     'isPast' => $isPast,
                     'isOwner' => $isOwner,
                     'isWorkDay' => $finalIsWorkDay,
@@ -449,14 +496,15 @@ class CompanyController extends Controller
                 $slots[] = $slot;
             }
             
-            $currentTime->addMinutes($slotDuration);
+            $currentTime->addMinutes($slotGenerationInterval);
         }
         
         // Журналирование для отладки
         Log::info('Сгенерированы временные слоты с учетом перерывов', [
             'date' => $date,
             'appointment_break_time' => $appointmentBreakTime,
-            'slot_duration' => $slotDuration,
+            'slot_generation_interval' => $slotGenerationInterval,
+            'min_service_duration' => $minServiceDuration,
             'occupied_intervals_count' => count($occupiedIntervals),
             'occupied_intervals' => collect($occupiedIntervals)->map(function($interval) {
                 return [
@@ -494,16 +542,28 @@ class CompanyController extends Controller
         
         // Проверяем, не выходит ли за рабочий день
         if ($serviceEndTime->greaterThan($workEndTime)) {
+            Log::debug('Недостаточно времени до конца рабочего дня', [
+                'slot_time' => $slotTime->format('H:i'),
+                'service_end_time' => $serviceEndTime->format('H:i'),
+                'work_end_time' => $workEndTime->format('H:i'),
+                'required_time' => $requiredTime
+            ]);
             return false;
         }
         
         // Проверяем пересечения с занятыми интервалами
         foreach ($occupiedIntervals as $interval) {
-            $intervalStart = Carbon::parse($interval['start']);
-            $intervalEnd = Carbon::parse($interval['end']);
+            $intervalStart = $interval['start'] instanceof Carbon ? $interval['start'] : Carbon::parse($interval['start']);
+            $intervalEnd = $interval['end'] instanceof Carbon ? $interval['end'] : Carbon::parse($interval['end']);
             
             // Если наша услуга пересекается с занятым интервалом
             if ($slotTime->lessThan($intervalEnd) && $serviceEndTime->greaterThan($intervalStart)) {
+                Log::debug('Пересечение с занятым интервалом', [
+                    'slot_time' => $slotTime->format('H:i'),
+                    'service_end_time' => $serviceEndTime->format('H:i'),
+                    'interval_start' => $intervalStart->format('H:i'),
+                    'interval_end' => $intervalEnd->format('H:i')
+                ]);
                 return false;
             }
         }

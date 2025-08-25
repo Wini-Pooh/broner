@@ -94,6 +94,164 @@ document.addEventListener('DOMContentLoaded', function() {
         ]
     };
 
+    // ===== УТИЛИТЫ ДЛЯ МОБИЛЬНЫХ УСТРОЙСТВ =====
+    const MobileUtils = {
+        // Определяем мобильное устройство
+        isMobile() {
+            return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+        },
+        
+        // Определяем iOS устройство
+        isIOS() {
+            return /iPad|iPhone|iPod/.test(navigator.userAgent);
+        },
+        
+        // Определяем поддержку touch событий
+        isTouchDevice() {
+            return ('ontouchstart' in window) || (navigator.maxTouchPoints > 0) || (navigator.msMaxTouchPoints > 0);
+        },
+        
+        // Создаем обработчик долгого нажатия
+        createLongPressHandler(element, callback, delay = 500) {
+            let pressTimer = null;
+            let isLongPress = false;
+            let startX = 0;
+            let startY = 0;
+            
+            const start = (e) => {
+                const coord = e.touches ? e.touches[0] : e;
+                startX = coord.clientX;
+                startY = coord.clientY;
+                isLongPress = false;
+                
+                // Отключаем выделение текста
+                element.style.userSelect = 'none';
+                element.style.webkitUserSelect = 'none';
+                element.style.msUserSelect = 'none';
+                
+                pressTimer = setTimeout(() => {
+                    isLongPress = true;
+                    
+                    // Добавляем тактильную обратную связь
+                    if (navigator.vibrate) {
+                        navigator.vibrate(50);
+                    }
+                    
+                    // Визуальная обратная связь
+                    element.classList.add('long-press-active');
+                    
+                    callback(e);
+                    
+                    // Убираем визуальную обратную связь
+                    setTimeout(() => {
+                        element.classList.remove('long-press-active');
+                    }, 150);
+                }, delay);
+                
+                if (e.type === 'touchstart') {
+                    e.preventDefault();
+                }
+            };
+            
+            const move = (e) => {
+                const coord = e.touches ? e.touches[0] : e;
+                const moveX = Math.abs(coord.clientX - startX);
+                const moveY = Math.abs(coord.clientY - startY);
+                
+                // Если палец сдвинулся больше чем на 10px, отменяем долгое нажатие
+                if (moveX > 10 || moveY > 10) {
+                    if (pressTimer) {
+                        clearTimeout(pressTimer);
+                        pressTimer = null;
+                    }
+                    this.restoreUserSelect(element);
+                }
+            };
+            
+            const end = (e) => {
+                if (pressTimer) {
+                    clearTimeout(pressTimer);
+                    pressTimer = null;
+                }
+                
+                this.restoreUserSelect(element);
+                
+                // Если это было долгое нажатие, не обрабатываем как обычный клик
+                if (isLongPress) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    isLongPress = false;
+                    return false;
+                }
+            };
+            
+            const cancel = (e) => {
+                if (pressTimer) {
+                    clearTimeout(pressTimer);
+                    pressTimer = null;
+                }
+                this.restoreUserSelect(element);
+                isLongPress = false;
+            };
+            
+            // Добавляем обработчики для touch устройств
+            if (this.isTouchDevice()) {
+                element.addEventListener('touchstart', start, { passive: false });
+                element.addEventListener('touchmove', move, { passive: true });
+                element.addEventListener('touchend', end, { passive: false });
+                element.addEventListener('touchcancel', cancel, { passive: true });
+            }
+            
+            // Добавляем обработчики для Pointer Events (современные браузеры)
+            if (window.PointerEvent) {
+                element.addEventListener('pointerdown', (e) => {
+                    if (e.pointerType === 'touch') {
+                        start(e);
+                    }
+                });
+                element.addEventListener('pointermove', (e) => {
+                    if (e.pointerType === 'touch') {
+                        move(e);
+                    }
+                });
+                element.addEventListener('pointerup', (e) => {
+                    if (e.pointerType === 'touch') {
+                        end(e);
+                    }
+                });
+                element.addEventListener('pointercancel', (e) => {
+                    if (e.pointerType === 'touch') {
+                        cancel(e);
+                    }
+                });
+            }
+            
+            return { start, move, end, cancel };
+        },
+        
+        // Восстанавливаем возможность выделения текста
+        restoreUserSelect(element) {
+            element.style.userSelect = '';
+            element.style.webkitUserSelect = '';
+            element.style.msUserSelect = '';
+        },
+        
+        // Добавляем подсказку для пользователей мобильных устройств
+        addMobileHint() {
+            if (this.isTouchDevice() && config.isOwner) {
+                const calendarHeader = document.querySelector('.calendar-header');
+                if (calendarHeader && !calendarHeader.querySelector('.mobile-hint')) {
+                    const hint = document.createElement('div');
+                    hint.className = 'mobile-hint text-muted text-center mt-2';
+                    hint.style.fontSize = '0.75rem';
+                    hint.style.fontStyle = 'italic';
+                    hint.innerHTML = '💡 Совет: Для управления днем нажмите и удерживайте дату';
+                    calendarHeader.appendChild(hint);
+                }
+            }
+        }
+    };
+
     // ===== СОСТОЯНИЕ ПРИЛОЖЕНИЯ =====
     const state = {
         currentDate: new Date(),
@@ -141,6 +299,9 @@ document.addEventListener('DOMContentLoaded', function() {
         if (config.isOwner) {
             initDateExceptionModal();
         }
+        
+        // Добавляем подсказку для мобильных устройств
+        MobileUtils.addMobileHint();
         
         // Загружаем начальные данные
         loadMonthlyStats();
@@ -359,19 +520,27 @@ document.addEventListener('DOMContentLoaded', function() {
             // Левый клик - выбор даты
             dayElement.addEventListener('click', () => selectDate(date, dayElement));
             
-            // Правый клик для владельца - контекстное меню
+            // Правый клик и долгое нажатие для владельца - контекстное меню
             if (config.isOwner) {
                 dayElement.classList.add('owner-view');
-                dayElement.addEventListener('contextmenu', (e) => {
-                    e.preventDefault();
-                    openDateExceptionModal(date);
-                });
                 
-                // Также добавляем двойной клик для открытия модального окна
-                dayElement.addEventListener('dblclick', (e) => {
+                // Функция открытия модального окна управления днем
+                const openDateModal = (e) => {
                     e.preventDefault();
+                    e.stopPropagation();
                     openDateExceptionModal(date);
-                });
+                };
+                
+                // Традиционный правый клик для десктопа
+                dayElement.addEventListener('contextmenu', openDateModal);
+                
+                // Двойной клик как альтернатива для десктопа
+                dayElement.addEventListener('dblclick', openDateModal);
+                
+                // Используем новую утилиту для мобильных устройств
+                if (MobileUtils.isTouchDevice()) {
+                    MobileUtils.createLongPressHandler(dayElement, openDateModal, 500);
+                }
             }
         }
         
@@ -492,11 +661,12 @@ document.addEventListener('DOMContentLoaded', function() {
         elements.timeSlots.innerHTML = '';
         
         slots.forEach(slot => {
-            // Для клиентов не показываем слоты с недостаточным временем
+            // Для клиентов не показываем слоты с недостаточным временем, если они недоступны
             if (!config.isOwner && !slot.has_enough_time && !slot.available) {
                 return; // Пропускаем этот слот
             }
             
+            // Для владельца показываем все слоты, но с правильной индикацией доступности
             const slotElement = createTimeSlot(slot);
             elements.timeSlots.appendChild(slotElement);
         });
@@ -796,7 +966,7 @@ document.addEventListener('DOMContentLoaded', function() {
             if (!ownerNotice) {
                 ownerNotice = document.createElement('div');
                 ownerNotice.className = 'alert alert-warning owner-booking-notice';
-                ownerNotice.innerHTML = '<i class="fas fa-crown me-2"></i><strong>Режим владельца:</strong> Вы можете создавать записи на любое время без ограничений.';
+                ownerNotice.innerHTML = '<i class="fas fa-crown me-2"></i><strong>Режим владельца</strong> ';
                 modalBody.insertBefore(ownerNotice, modalBody.firstChild);
             }
             
@@ -1510,6 +1680,14 @@ document.addEventListener('DOMContentLoaded', function() {
     // Открытие модального окна управления исключением
     function openDateExceptionModal(date) {
         if (!config.isOwner) return;
+        
+        // Показываем уведомление для мобильных пользователей
+        if (MobileUtils.isMobile()) {
+            // Небольшая тактильная обратная связь
+            if (navigator.vibrate) {
+                navigator.vibrate([30, 100, 30]);
+            }
+        }
         
         const modal = new bootstrap.Modal(document.getElementById('dateExceptionModal'));
         const form = document.getElementById('dateExceptionForm');

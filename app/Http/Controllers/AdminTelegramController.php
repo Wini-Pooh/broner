@@ -24,7 +24,7 @@ class AdminTelegramController extends Controller
         try {
             $data = $request->all();
             
-            Log::info('Получен webhook от Telegram:', $data);
+            Log::info('Получен webhook от админского Telegram бота:', $data);
 
             // Обрабатываем callback query (нажатия на кнопки)
             if (isset($data['callback_query'])) {
@@ -33,6 +33,12 @@ class AdminTelegramController extends Controller
                 $messageId = $callbackQuery['message']['message_id'];
                 $chatId = $callbackQuery['message']['chat']['id'];
                 $callbackQueryId = $callbackQuery['id'];
+
+                Log::info('Обрабатываем callback query от админского бота', [
+                    'callback_data' => $callbackData,
+                    'chat_id' => $chatId,
+                    'message_id' => $messageId
+                ]);
 
                 $this->telegramService->handleCallback($callbackData, $callbackQueryId, $chatId, $messageId);
                 

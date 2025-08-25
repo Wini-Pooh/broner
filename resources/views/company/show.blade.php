@@ -308,6 +308,109 @@
     background-color: #dee2e6;
     margin: 4px 0;
 }
+
+/* Стили для мобильных устройств и touch интерфейса */
+@media (hover: none) and (pointer: coarse) {
+    /* Для touch устройств */
+    .calendar-day.owner-view {
+        -webkit-tap-highlight-color: rgba(0, 123, 255, 0.1);
+        -webkit-touch-callout: none;
+        -webkit-user-select: none;
+        -khtml-user-select: none;
+        -moz-user-select: none;
+        -ms-user-select: none;
+        user-select: none;
+        position: relative;
+    }
+    
+    .calendar-day.owner-view::after {
+        content: "📱";
+        position: absolute;
+        bottom: 2px;
+        right: 2px;
+        font-size: 8px;
+        opacity: 0.6;
+        pointer-events: none;
+    }
+    
+    /* Визуальная обратная связь при долгом нажатии */
+    .calendar-day.owner-view.long-press-active {
+        transform: scale(1.05);
+        background-color: #e3f2fd !important;
+        border-color: #007bff !important;
+        transition: all 0.15s ease;
+        box-shadow: 0 2px 8px rgba(0, 123, 255, 0.3);
+    }
+    
+    /* Запрещаем выделение текста для всех календарных дней */
+    .calendar-day {
+        -webkit-touch-callout: none;
+        -webkit-user-select: none;
+        -khtml-user-select: none;
+        -moz-user-select: none;
+        -ms-user-select: none;
+        user-select: none;
+    }
+    
+    /* Улучшаем читаемость на мобильных */
+    .calendar-day {
+        line-height: 1.4;
+        padding: 8px 4px;
+    }
+    
+    /* Увеличиваем области нажатия для кнопок */
+    .btn {
+        min-height: 44px;
+        padding: 12px 16px;
+    }
+}
+
+/* Дополнительные стили для iOS Safari и WebKit браузеров */
+.calendar-day.owner-view {
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+}
+
+/* Убираем стандартную подсветку iOS */
+.calendar-day.owner-view * {
+    -webkit-tap-highlight-color: transparent;
+}
+
+/* Стили для устройств с touch поддержкой */
+@media (pointer: coarse) {
+    .calendar-day.owner-view {
+        min-height: 44px; /* Минимальный размер для удобного нажатия */
+        min-width: 44px;
+    }
+    
+    /* Увеличиваем размер для лучшей доступности */
+    .calendar-day {
+        font-size: 16px; /* Предотвращает зум на iOS */
+        line-height: 1.2;
+    }
+}
+
+/* Анимации и переходы для лучшего UX */
+.calendar-day.owner-view {
+    transition: all 0.15s ease;
+}
+
+.calendar-day.owner-view:active {
+    transform: scale(0.98);
+}
+
+/* Инструкция для пользователя (показывается только на touch устройствах) */
+@media (hover: none) and (pointer: coarse) {
+    .calendar-header::after {
+        content: "💡 Совет: Для управления днем нажмите и удерживайте дату";
+        display: block;
+        font-size: 0.75rem;
+        color: #6c757d;
+        text-align: center;
+        margin-top: 0.5rem;
+        font-style: italic;
+    }
+}
 </style>
 @endsection
 @section('content')
@@ -385,19 +488,16 @@
             <div class="card shadow mb-4">
                 <div class="card-header d-flex justify-content-between align-items-center">
                     <h4 class="mb-0">Выберите дату и время</h4>
-                  
                 </div>
                 <div class="card-body">
                 
                     @if($isOwner)
                     <div class="alert alert-info alert-dismissible fade show" role="alert">
                         <i class="fas fa-crown me-2"></i>
-                        <strong>Режим владельца:</strong> Вы можете просматривать и создавать записи на любые даты, включая прошедшие и выходные дни, без ограничений по времени бронирования.
+                        <strong>Режим владельца</strong>
                         <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
                     </div>
                     @endif
-                    
-                    <!-- Календарь -->
                     <div class="calendar-container">
                         <div class="calendar-header">
                             <button class="btn btn-outline-primary btn-sm" id="prevMonth">
@@ -408,7 +508,6 @@
                                 <i class="fas fa-chevron-right"></i>
                             </button>
                         </div>
-                        
                         <div class="calendar-grid">
                             <div class="calendar-days-header">
                                 <div class="calendar-day-name">Пн</div>

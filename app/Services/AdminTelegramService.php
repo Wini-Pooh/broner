@@ -107,12 +107,25 @@ class AdminTelegramService
     public function handleCallback($callbackData, $callbackQueryId, $chatId, $messageId)
     {
         try {
+            Log::info('Получен callback от админского бота', [
+                'callback_data' => $callbackData,
+                'chat_id' => $chatId,
+                'message_id' => $messageId
+            ]);
+
             $parts = explode('_', $callbackData);
             $action = $parts[0] . '_' . $parts[1];
             $userId = $parts[2];
 
+            Log::info('Разбор callback данных', [
+                'action' => $action,
+                'user_id' => $userId,
+                'parts' => $parts
+            ]);
+
             $user = User::find($userId);
             if (!$user) {
+                Log::warning('Пользователь не найден для callback', ['user_id' => $userId]);
                 $this->sendCallbackAnswer($callbackQueryId, "Пользователь не найден");
                 return false;
             }
@@ -143,12 +156,25 @@ class AdminTelegramService
      */
     private function approvePayment(User $user, $messageId, $chatId, $callbackQueryId)
     {
+        Log::info('Попытка активации пользователя', [
+            'user_id' => $user->id,
+            'user_email' => $user->email,
+            'current_is_paid' => $user->is_paid
+        ]);
+
         if ($user->is_paid) {
+            Log::info('Пользователь уже оплачен', ['user_id' => $user->id]);
             $this->sendCallbackAnswer($callbackQueryId, "Пользователь уже имеет статус 'оплачено'");
             return false;
         }
 
-        $user->update(['is_paid' => true]);
+        $result = $user->update(['is_paid' => true]);
+        
+        Log::info('Результат обновления пользователя', [
+            'user_id' => $user->id,
+            'update_result' => $result,
+            'new_is_paid' => $user->fresh()->is_paid
+        ]);
         
         $message = "✅ <b>Пользователь активирован!</b>\n\n";
         $message .= "👤 <b>Пользователь:</b> {$user->name}\n";

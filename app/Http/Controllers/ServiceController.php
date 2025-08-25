@@ -177,8 +177,20 @@ class ServiceController extends Controller
             'duration_minutes' => 'required|integer|min:5|max:480',
             'type' => 'nullable|string|max:50',
             'photo' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048',
-            'is_active' => 'boolean',
+            'is_active' => 'nullable|in:on',
         ], [
+            'name.required' => 'Название услуги обязательно для заполнения.',
+            'name.max' => 'Название услуги не может быть длиннее 255 символов.',
+            'description.max' => 'Описание услуги не может быть длиннее 1000 символов.',
+            'price.numeric' => 'Цена должна быть числом.',
+            'price.min' => 'Цена не может быть отрицательной.',
+            'duration_minutes.required' => 'Длительность услуги обязательна для заполнения.',
+            'duration_minutes.integer' => 'Длительность должна быть целым числом.',
+            'duration_minutes.min' => 'Минимальная длительность услуги 5 минут.',
+            'duration_minutes.max' => 'Максимальная длительность услуги 480 минут (8 часов).',
+            'type.max' => 'Тип услуги не может быть длиннее 50 символов.',
+            'photo.image' => 'Файл должен быть изображением.',
+            'photo.mimes' => 'Фото должно быть файлом типа: jpeg, png, jpg, gif.',
             'photo.max' => 'Размер фото не должен превышать 2MB.',
         ]);
         
